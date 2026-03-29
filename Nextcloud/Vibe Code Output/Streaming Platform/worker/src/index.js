@@ -141,8 +141,20 @@ export default {
       return json({ ok: true, ts: Date.now() });
     }
 
-    // Create room (host only – returns a roomId)
+    // Create room (host only – PIN-protected)
+    // Required secrets: HOST_PIN
     if (url.pathname === "/api/room/create" && request.method === "POST") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      if (!body.pin || body.pin !== env.HOST_PIN) {
+        return json({ error: "Invalid host PIN" }, 401);
+      }
+
       const roomId = crypto.randomUUID();
       return json({ roomId });
     }

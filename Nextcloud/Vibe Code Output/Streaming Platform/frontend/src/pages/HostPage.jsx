@@ -6,6 +6,7 @@ const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787'
 export default function HostPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
+  const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -15,7 +16,11 @@ export default function HostPage() {
     setLoading(true)
 
     try {
-      const res = await fetch(`${WORKER_URL}/api/room/create`, { method: 'POST' })
+      const res = await fetch(`${WORKER_URL}/api/room/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      })
       const data = await res.json()
 
       if (!res.ok) {
@@ -62,12 +67,25 @@ export default function HostPage() {
               />
             </label>
 
+            <label style={styles.label}>
+              Host PIN
+              <input
+                className="input"
+                type="password"
+                placeholder="Enter host PIN"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </label>
+
             {error && <p className="msg-error">{error}</p>}
 
             <button
               className="btn btn-primary"
               type="submit"
-              disabled={loading}
+              disabled={loading || !pin}
               style={{ width: '100%', marginTop: 4 }}
             >
               {loading ? 'Creating…' : 'Create Room'}

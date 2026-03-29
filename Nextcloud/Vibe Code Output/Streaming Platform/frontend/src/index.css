@@ -7,9 +7,9 @@
   --text:       #c8c8d0;
   --text-muted: #6b6b78;
   --text-head:  #f0f0f4;
-  --accent:     #e05a1e;        /* DC Orange */
-  --accent-dim: rgba(224, 90, 30, 0.15);
-  --accent-hover: #f06b2e;
+  --accent:     #E60501;        /* DC Red */
+  --accent-dim: rgba(230, 5, 1, 0.15);
+  --accent-hover: #FF2420;
   --success:    #3ecf8e;
   --error:      #f45b69;
   --radius:     6px;

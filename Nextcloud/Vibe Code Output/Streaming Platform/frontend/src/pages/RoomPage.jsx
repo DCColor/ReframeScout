@@ -7,14 +7,14 @@ function formatElapsed(totalSeconds) {
   const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
   const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')
   const ss = String(totalSeconds % 60).padStart(2, '0')
-  return `${hh}:${mm}:${ss}:00`
+  return `${hh}:${mm}:${ss}`
 }
 
 export default function RoomPage() {
   const { roomId } = useParams()
   const navigate = useNavigate()
   const name = sessionStorage.getItem('dcc_name') || 'Guest'
-  const [timecode, setTimecode] = useState('00:00:00:00')
+  const [timecode, setTimecode] = useState('00:00:00')
 
   useEffect(() => {
     let elapsed = 0
@@ -119,7 +119,7 @@ const styles = {
     padding: '4px 10px',
     background: 'var(--accent-dim)',
     borderRadius: 4,
-    border: '1px solid rgba(224, 90, 30, 0.25)',
+    border: '1px solid rgba(230, 5, 1, 0.25)',
   },
   timecode: {
     fontFamily: 'var(--mono)',

@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import Chat from '../components/Chat'
+import VideoPlayer from '../components/VideoPlayer'
 
 export default function RoomPage() {
   const { roomId } = useParams()
@@ -14,12 +15,17 @@ export default function RoomPage() {
           <span style={{ color: 'var(--accent)', fontWeight: 700 }}>DC</span>
           <span style={{ color: 'var(--text-head)', fontWeight: 600 }}> Color Live</span>
         </div>
+
         <div style={styles.roomInfo}>
           <span style={styles.badge}>LIVE</span>
           <span style={styles.roomId} title={roomId}>
             Room: {roomId.slice(0, 8)}…
           </span>
         </div>
+
+        {/* Timecode display */}
+        <div style={styles.timecode}>00:00:00:00</div>
+
         <button
           className="btn btn-ghost"
           style={styles.leaveBtn}
@@ -32,14 +38,7 @@ export default function RoomPage() {
       {/* Main content area */}
       <main style={styles.main}>
         <div style={styles.playerArea}>
-          <div style={styles.playerPlaceholder}>
-            <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-              Video player will appear here
-            </p>
-            <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>
-              Room Connected
-            </p>
-          </div>
+          <VideoPlayer />
         </div>
 
         <aside style={styles.sidebar}>
@@ -91,6 +90,17 @@ const styles = {
     color: 'var(--text-muted)',
     fontFamily: 'var(--mono)',
   },
+  timecode: {
+    fontFamily: 'var(--mono)',
+    fontSize: 15,
+    fontWeight: 600,
+    color: 'var(--accent)',
+    letterSpacing: '2px',
+    padding: '4px 10px',
+    background: 'var(--accent-dim)',
+    borderRadius: 4,
+    border: '1px solid rgba(224, 90, 30, 0.25)',
+  },
   leaveBtn: {
     fontSize: 13,
     padding: '6px 14px',
@@ -106,9 +116,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     background: '#000',
-  },
-  playerPlaceholder: {
-    textAlign: 'center',
+    overflow: 'hidden',
   },
   sidebar: {
     width: 300,
@@ -116,5 +124,6 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     background: 'var(--bg-surface)',
+    flexShrink: 0,
   },
 }

@@ -80,6 +80,10 @@ export class ChatRoom extends DurableObject {
     this.webSocketClose(ws);
   }
 
+  broadcastTimecode(timecode) {
+    this.#broadcast({ type: "timecode", timecode });
+  }
+
   #broadcast(msg, exclude = null) {
     const text = JSON.stringify(msg);
     for (const [ws] of this.sessions) {
@@ -93,6 +97,12 @@ export class ChatRoom extends DurableObject {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Module-level timecode store (per-isolate; shared across requests in the
+// same V8 isolate, which is sufficient for a single live session)
+// ---------------------------------------------------------------------------
+let latestTimecode = "00:00:00:00";
 
 // ---------------------------------------------------------------------------
 // CORS helpers
@@ -164,6 +174,37 @@ export default {
 
       // Forward the request to the DO with the original URL intact
       return stub.fetch(new Request(`https://do/websocket?${url.searchParams}`, request));
+    }
+
+    // Timecode relay – write (encoding machine → worker)
+    // Required secrets: ROOM_PASSWORD, REALTIMEKIT_ORG_ID, REALTIMEKIT_API_KEY, RELAY_SECRET
+    if (url.pathname === "/api/timecode" && request.method === "POST") {
+      const auth = request.headers.get("Authorization") || "";
+      const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+
+      if (!token || token !== env.RELAY_SECRET) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const { timecode } = body;
+      if (!timecode || typeof timecode !== "string") {
+        return json({ error: "timecode string required" }, 400);
+      }
+
+      latestTimecode = timecode;
+      return json({ ok: true });
+    }
+
+    // Timecode relay – read (browser → worker, polled every 100ms)
+    if (url.pathname === "/api/timecode" && request.method === "GET") {
+      return json({ timecode: latestTimecode });
     }
 
     // RealtimeKit token

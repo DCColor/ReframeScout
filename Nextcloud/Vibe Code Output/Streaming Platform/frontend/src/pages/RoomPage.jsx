@@ -1,8 +1,17 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Chat from '../components/Chat'
 import VideoPlayer from '../components/VideoPlayer'
 import VideoConference from '../components/VideoConference'
+import LaserPointer from '../components/LaserPointer'
+
+const LASER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#f97316']
+
+function getColor(name) {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+  return LASER_COLORS[hash % LASER_COLORS.length]
+}
 
 const LINKS = [
   { label: 'DC Color Portal', url: 'https://www.dccolor.com/clientportal' },
@@ -19,7 +28,13 @@ export default function RoomPage() {
   const [stripOpen, setStripOpen] = useState(true)
   const [copied, setCopied] = useState(false)
   const [linksOpen, setLinksOpen] = useState(false)
+  const [laserActive, setLaserActive] = useState(false)
+  const [localLaserPos, setLocalLaserPos] = useState(null)
+  const [remoteLasers, setRemoteLasers] = useState({})
   const linksRef = useRef(null)
+  const chatRef = useRef(null)
+  const lastLaserRef = useRef(0)
+  const myColor = getColor(name)
 
   function copyRoomId() {
     navigator.clipboard.writeText(roomId).then(() => {
@@ -38,6 +53,50 @@ export default function RoomPage() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
+  function toggleLaser() {
+    if (laserActive) {
+      chatRef.current?.send({ type: 'laser_off', name })
+      setLocalLaserPos(null)
+    }
+    setLaserActive((prev) => !prev)
+  }
+
+  const handleVideoMouseMove = useCallback((e) => {
+    if (!laserActive) return
+    const now = Date.now()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = ((e.clientX - rect.left) / rect.width) * 100
+    const y = ((e.clientY - rect.top) / rect.height) * 100
+    // Always update local dot immediately (no throttle)
+    setLocalLaserPos({ x, y, color: myColor })
+    // Throttle the broadcast to 30ms
+    if (now - lastLaserRef.current < 30) return
+    lastLaserRef.current = now
+    console.log('[laser] broadcasting', x.toFixed(1), y.toFixed(1))
+    chatRef.current?.send({ type: 'laser', x, y, name, color: myColor })
+  }, [laserActive, name, myColor])
+
+  function handleVideoMouseLeave() {
+    if (!laserActive) return
+    setLocalLaserPos(null)
+    chatRef.current?.send({ type: 'laser_off', name })
+  }
+
+  function handleLaserMessage(msg) {
+    if (msg.type === 'laser') {
+      setRemoteLasers((prev) => ({
+        ...prev,
+        [msg.name]: { x: msg.x, y: msg.y, color: msg.color, ts: Date.now() },
+      }))
+    } else if (msg.type === 'laser_off') {
+      setRemoteLasers((prev) => {
+        const next = { ...prev }
+        delete next[msg.name]
+        return next
+      })
+    }
+  }
 
   return (
     <div style={styles.layout}>
@@ -61,6 +120,16 @@ export default function RoomPage() {
             {copied ? 'Copied!' : 'Copy ID'}
           </button>
         </div>
+
+        {/* Laser pointer toggle */}
+        <button
+          className="btn btn-ghost"
+          style={{ ...styles.laserBtn, ...(laserActive ? styles.laserBtnActive : {}) }}
+          onClick={toggleLaser}
+          title={laserActive ? 'Laser pointer on — click to turn off' : 'Laser pointer'}
+        >
+          ◎ Laser
+        </button>
 
         {/* Links dropdown */}
         <div style={styles.linksWrap} ref={linksRef}>
@@ -103,7 +172,17 @@ export default function RoomPage() {
         {/* Left column: video player + conference strip */}
         <div style={styles.leftCol}>
           <div style={styles.playerArea}>
-            <VideoPlayer />
+            <VideoPlayer
+              laserActive={laserActive}
+              onMouseMove={handleVideoMouseMove}
+              onMouseLeave={handleVideoMouseLeave}
+            >
+              <LaserPointer
+                remoteLasers={remoteLasers}
+                localLaser={localLaserPos}
+                localName={name}
+              />
+            </VideoPlayer>
           </div>
           <VideoConference
             participantName={name}
@@ -124,11 +203,9 @@ export default function RoomPage() {
         </button>
 
         {/* Chat sidebar */}
-        {chatOpen && (
-          <aside style={styles.sidebar}>
-            <Chat roomId={roomId} name={name} />
-          </aside>
-        )}
+        <aside style={{ ...styles.sidebar, display: chatOpen ? 'flex' : 'none' }}>
+          <Chat ref={chatRef} roomId={roomId} name={name} onLaserMessage={handleLaserMessage} />
+        </aside>
       </div>
     </div>
   )
@@ -181,6 +258,17 @@ const styles = {
     fontSize: 11,
     padding: '3px 8px',
     whiteSpace: 'nowrap',
+  },
+  laserBtn: {
+    fontSize: 13,
+    padding: '5px 10px',
+    whiteSpace: 'nowrap',
+  },
+  laserBtnActive: {
+    color: 'var(--accent)',
+    background: 'var(--accent-dim)',
+    border: '1px solid rgba(230,5,1,0.35)',
+    borderRadius: 4,
   },
   linksWrap: {
     position: 'relative',

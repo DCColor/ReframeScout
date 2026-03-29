@@ -3,7 +3,7 @@ import { useState } from 'react'
 const IFRAME_SRC =
   'https://customer-nm8nevs4vhwnkl65.cloudflarestream.com/9b3f95f153b184ca5c7919b299784a61/iframe?lowLatencyHLS=true'
 
-export default function VideoPlayer() {
+export default function VideoPlayer({ children, laserActive, onMouseMove, onMouseLeave }) {
   const [streamActive, setStreamActive] = useState(false)
 
   return (
@@ -26,6 +26,20 @@ export default function VideoPlayer() {
             </div>
           </div>
         )}
+
+        {/* Transparent capture layer — sits above the iframe so mouse events
+            are not swallowed by the iframe when laser mode is active. */}
+        <div
+          style={{
+            ...styles.eventCapture,
+            pointerEvents: laserActive ? 'all' : 'none',
+            cursor: laserActive ? 'crosshair' : 'default',
+          }}
+          onMouseMove={onMouseMove}
+          onMouseLeave={onMouseLeave}
+        />
+
+        {children}
       </div>
     </div>
   )
@@ -54,6 +68,11 @@ const styles = {
     height: '100%',
     border: 'none',
     display: 'block',
+  },
+  eventCapture: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 5,
   },
   overlay: {
     position: 'absolute',

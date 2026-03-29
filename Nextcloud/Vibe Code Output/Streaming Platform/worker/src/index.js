@@ -60,6 +60,8 @@ export class ChatRoom extends DurableObject {
         text: data.text,
         ts: Date.now(),
       });
+    } else if (data.type === "laser" || data.type === "laser_off") {
+      this.#broadcast(data, ws);
     }
   }
 

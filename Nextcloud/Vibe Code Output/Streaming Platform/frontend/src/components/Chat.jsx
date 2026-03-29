@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 
-const WORKER_WS_URL = (import.meta.env.VITE_WORKER_URL || 'http://localhost:8787')
-  .replace(/^http/, 'ws')
+const WORKER_BASE = (import.meta.env.VITE_WORKER_URL || 'http://localhost:8787').replace(/\/$/, '')
 
-export default function Chat({ roomId, name }) {
+const Chat = forwardRef(function Chat({ roomId, name, onLaserMessage }, ref) {
   const [messages, setMessages] = useState([])
   const [members, setMembers] = useState([])
   const [draft, setDraft] = useState('')
@@ -13,8 +12,18 @@ export default function Chat({ roomId, name }) {
   const reconnectTimer = useRef(null)
   const pendingSent = useRef([]) // texts sent optimistically, awaiting server echo
 
+  useImperativeHandle(ref, () => ({
+    send(data) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(data))
+      }
+    },
+  }))
+
   const connect = useCallback(() => {
-    const url = `${WORKER_WS_URL}/api/room/${roomId}/websocket?name=${encodeURIComponent(name)}`
+    const wsBase = WORKER_BASE.replace(/^https/, 'wss').replace(/^http/, 'ws')
+    const url = `${wsBase}/api/room/${roomId}/websocket?name=${encodeURIComponent(name)}`
+    console.log('[chat] connecting to WebSocket:', url)
     const ws = new WebSocket(url)
     wsRef.current = ws
 
@@ -25,6 +34,11 @@ export default function Chat({ roomId, name }) {
     ws.onmessage = (e) => {
       let msg
       try { msg = JSON.parse(e.data) } catch { return }
+
+      if (msg.type === 'laser' || msg.type === 'laser_off') {
+        onLaserMessage?.(msg)
+        return
+      }
 
       if (msg.type === 'chat') {
         // Drop server echo for messages we already added optimistically
@@ -128,7 +142,9 @@ export default function Chat({ roomId, name }) {
       </form>
     </div>
   )
-}
+})
+
+export default Chat
 
 function ChatMessage({ msg, self }) {
   return (

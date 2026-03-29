@@ -46,7 +46,7 @@ export default function HostPage() {
           <span style={styles.brandAccent}>DC</span>
           <span style={styles.brandName}> Color Live</span>
         </div>
-        <p style={styles.tagline}>Professional video review, in real time.</p>
+        <p style={styles.tagline}>Private, Secure, Real-Time Review</p>
 
         <div className="card" style={styles.card}>
           <h2 style={styles.cardTitle}>Start a Review Session</h2>

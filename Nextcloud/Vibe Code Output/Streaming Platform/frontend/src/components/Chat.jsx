@@ -11,6 +11,7 @@ export default function Chat({ roomId, name }) {
   const wsRef = useRef(null)
   const bottomRef = useRef(null)
   const reconnectTimer = useRef(null)
+  const pendingSent = useRef([]) // texts sent optimistically, awaiting server echo
 
   const connect = useCallback(() => {
     const url = `${WORKER_WS_URL}/api/room/${roomId}/websocket?name=${encodeURIComponent(name)}`
@@ -26,6 +27,14 @@ export default function Chat({ roomId, name }) {
       try { msg = JSON.parse(e.data) } catch { return }
 
       if (msg.type === 'chat') {
+        // Drop server echo for messages we already added optimistically
+        if (msg.name === name) {
+          const idx = pendingSent.current.indexOf(msg.text)
+          if (idx !== -1) {
+            pendingSent.current.splice(idx, 1)
+            return
+          }
+        }
         setMessages((prev) => [...prev, msg])
       } else if (msg.type === 'members') {
         setMembers(msg.members)
@@ -67,6 +76,9 @@ export default function Chat({ roomId, name }) {
     e.preventDefault()
     const text = draft.trim()
     if (!text || wsRef.current?.readyState !== WebSocket.OPEN) return
+    // Optimistic update — show immediately as a self message
+    pendingSent.current.push(text)
+    setMessages((prev) => [...prev, { type: 'chat', name, text, ts: Date.now(), _optimistic: true }])
     wsRef.current.send(JSON.stringify({ type: 'chat', text }))
     setDraft('')
   }
@@ -121,8 +133,8 @@ export default function Chat({ roomId, name }) {
 function ChatMessage({ msg, self }) {
   return (
     <div style={{ ...styles.message, ...(self ? styles.messageSelf : {}) }}>
-      <span style={styles.msgName}>{msg.name}</span>
-      <span style={styles.msgText}>{msg.text}</span>
+      {!self && <span style={styles.msgName}>{msg.name}</span>}
+      <span style={{ ...styles.msgText, ...(self ? styles.msgTextSelf : {}) }}>{msg.text}</span>
       <span style={styles.msgTime}>{formatTime(msg.ts)}</span>
     </div>
   )
@@ -207,6 +219,11 @@ const styles = {
     color: 'var(--text-head)',
     maxWidth: '90%',
     wordBreak: 'break-word',
+  },
+  msgTextSelf: {
+    background: 'var(--accent-dim)',
+    border: '1px solid rgba(230,5,1,0.25)',
+    color: 'var(--text-head)',
   },
   msgTime: {
     fontSize: 10,

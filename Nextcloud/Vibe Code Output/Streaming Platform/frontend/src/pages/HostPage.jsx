@@ -1,38 +1,31 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787'
 
-export default function JoinPage() {
+export default function HostPage() {
   const navigate = useNavigate()
-  const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [roomId, setRoomId] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  async function handleJoin(e) {
+  async function handleCreate(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
 
     try {
-      const res = await fetch(`${WORKER_URL}/api/room/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, roomId: roomId.trim(), name: name.trim() }),
-      })
-
+      const res = await fetch(`${WORKER_URL}/api/room/create`, { method: 'POST' })
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || 'Failed to join room')
+        setError(data.error || 'Failed to create room')
         return
       }
 
-      sessionStorage.setItem('dcc_name', name.trim() || 'Guest')
-      sessionStorage.setItem('dcc_role', 'guest')
-      sessionStorage.removeItem('dcc_meeting_id') // fresh meeting for each session
+      sessionStorage.setItem('dcc_name', name.trim() || 'Host')
+      sessionStorage.setItem('dcc_role', 'host')
+      sessionStorage.removeItem('dcc_meeting_id') // fresh meeting for new room
       navigate(`/room/${data.roomId}`)
     } catch {
       setError('Could not reach server. Check your connection.')
@@ -44,7 +37,6 @@ export default function JoinPage() {
   return (
     <div style={styles.page}>
       <div style={styles.container}>
-        {/* Logo / wordmark */}
         <div style={styles.brand}>
           <span style={styles.brandAccent}>DC</span>
           <span style={styles.brandName}> Color Live</span>
@@ -52,9 +44,12 @@ export default function JoinPage() {
         <p style={styles.tagline}>Professional video review, in real time.</p>
 
         <div className="card" style={styles.card}>
-          <h2 style={styles.cardTitle}>Join a Review Room</h2>
+          <h2 style={styles.cardTitle}>Start a Review Session</h2>
+          <p style={styles.cardDesc}>
+            A new room will be created. Share the Room ID and session password with participants.
+          </p>
 
-          <form onSubmit={handleJoin} style={styles.form}>
+          <form onSubmit={handleCreate} style={styles.form}>
             <label style={styles.label}>
               Your Name
               <input
@@ -67,50 +62,24 @@ export default function JoinPage() {
               />
             </label>
 
-            <label style={styles.label}>
-              Room ID
-              <input
-                className="input"
-                type="text"
-                placeholder="Paste the room ID"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                required
-                autoComplete="off"
-              />
-            </label>
-
-            <label style={styles.label}>
-              Password
-              <input
-                className="input"
-                type="password"
-                placeholder="Enter room password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
-            </label>
-
             {error && <p className="msg-error">{error}</p>}
 
             <button
               className="btn btn-primary"
               type="submit"
-              disabled={loading || !password || !roomId}
+              disabled={loading}
               style={{ width: '100%', marginTop: 4 }}
             >
-              {loading ? 'Joining…' : 'Join Room'}
+              {loading ? 'Creating…' : 'Create Room'}
             </button>
           </form>
         </div>
 
         <p style={styles.footer}>
-          Hosting a session?{' '}
-          <Link to="/host" style={{ color: 'var(--accent)' }}>
-            Create a room
-          </Link>
+          Joining a session?{' '}
+          <a href="/" style={{ color: 'var(--accent)' }}>
+            Join a room
+          </a>
         </p>
       </div>
     </div>
@@ -156,8 +125,14 @@ const styles = {
   },
   cardTitle: {
     fontSize: 18,
-    marginBottom: 20,
+    marginBottom: 8,
     color: 'var(--text-head)',
+  },
+  cardDesc: {
+    fontSize: 13,
+    color: 'var(--text-muted)',
+    marginBottom: 20,
+    lineHeight: 1.5,
   },
   form: {
     display: 'flex',

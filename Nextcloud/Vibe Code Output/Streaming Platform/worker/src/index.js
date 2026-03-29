@@ -99,10 +99,14 @@ export class ChatRoom extends DurableObject {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level timecode store (per-isolate; shared across requests in the
-// same V8 isolate, which is sufficient for a single live session)
+// Module-level stores (per-isolate)
 // ---------------------------------------------------------------------------
 let latestTimecode = "00:00:00:00";
+
+// roomId → Dyte meetingId. Passing meetingId back to the client (who stores
+// it in sessionStorage) ensures all participants share the same Dyte meeting
+// even if requests hit different isolates on subsequent calls.
+const dyteMeetingIds = new Map();
 
 // ---------------------------------------------------------------------------
 // CORS helpers
@@ -207,7 +211,89 @@ export default {
       return json({ timecode: latestTimecode });
     }
 
-    // RealtimeKit token
+    // RealtimeKit/Dyte meeting participant token
+    // Required secrets: REALTIMEKIT_ORG_ID, REALTIMEKIT_API_KEY
+    if (url.pathname === "/api/meeting/token" && request.method === "POST") {
+      if (!env.REALTIMEKIT_ORG_ID || !env.REALTIMEKIT_API_KEY) {
+        return json({ error: "RealtimeKit not configured" }, 500);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const { participantName, role, roomId, meetingId: clientMeetingId } = body;
+      if (!participantName) return json({ error: "participantName required" }, 400);
+      if (!roomId) return json({ error: "roomId required" }, 400);
+      if (role !== "host" && role !== "guest") return json({ error: "role must be host or guest" }, 400);
+
+      const authHeader = `Bearer ${env.REALTIMEKIT_API_KEY}`;
+      const dyteBase = `https://api.cloudflare.com/client/v4/accounts/588f4c4929a697b2d9e0237b4b7a18e8/realtime/kit/${env.REALTIMEKIT_ORG_ID}`;
+
+      // Resolve Dyte meeting ID – prefer what the client already knows (avoids
+      // isolate cold-start creating duplicate meetings), then fall back to the
+      // in-memory cache, then create a new one.
+      let meetingId = clientMeetingId || dyteMeetingIds.get(roomId);
+
+      if (!meetingId) {
+        const createRes = await fetch(`${dyteBase}/meetings`, {
+          method: "POST",
+          headers: { Authorization: authHeader, "Content-Type": "application/json" },
+          body: JSON.stringify({ title: "DC Color Session" }),
+        });
+        if (!createRes.ok) {
+          const err = await createRes.text();
+          return json(
+            { error: "Failed to create Dyte meeting", status: createRes.status, detail: err },
+            502
+          );
+        }
+        const createData = await createRes.json();
+        meetingId = createData.data.id;
+        dyteMeetingIds.set(roomId, meetingId);
+      }
+
+      const presetName = role === "host" ? "group_call_host" : "group_call_participant";
+      const addRes = await fetch(`${dyteBase}/meetings/${meetingId}/participants`, {
+        method: "POST",
+        headers: { Authorization: authHeader, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: participantName,
+          preset_name: presetName,
+          custom_participant_id: crypto.randomUUID(),
+        }),
+      });
+      const addBody = await addRes.text();
+      console.error("[meeting/token] addParticipant status:", addRes.status, "body:", addBody);
+
+      if (!addRes.ok) {
+        return json(
+          { error: "Failed to add participant", status: addRes.status, detail: addBody },
+          502
+        );
+      }
+
+      let addData;
+      try {
+        addData = JSON.parse(addBody);
+      } catch {
+        return json({ error: "Non-JSON response from participant API", detail: addBody }, 502);
+      }
+
+      console.error("[meeting/token] addData full response:", JSON.stringify(addData));
+
+      const participantToken = addData.data?.authToken ?? addData.data?.token ?? null;
+      if (!participantToken) {
+        return json({ error: "No token in participant response", detail: addData }, 502);
+      }
+
+      return json({ token: participantToken, meetingId });
+    }
+
+    // RealtimeKit token (legacy – kept for backwards compatibility)
     if (url.pathname === "/api/token" && request.method === "GET") {
       if (!env.REALTIMEKIT_ORG_ID || !env.REALTIMEKIT_API_KEY) {
         return json({ error: "RealtimeKit not configured" }, 500);

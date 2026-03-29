@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dytesdk/react-ui-kit": "^3.0.8",
+    "@dytesdk/react-web-core": "^3.1.11",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.6.0"

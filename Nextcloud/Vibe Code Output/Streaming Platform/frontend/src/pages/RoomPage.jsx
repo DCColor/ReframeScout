@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Chat from '../components/Chat'
 import VideoPlayer from '../components/VideoPlayer'
+import VideoConference from '../components/VideoConference'
 
 function formatElapsed(totalSeconds) {
   const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
@@ -14,6 +15,7 @@ export default function RoomPage() {
   const { roomId } = useParams()
   const navigate = useNavigate()
   const name = sessionStorage.getItem('dcc_name') || 'Guest'
+  const role = sessionStorage.getItem('dcc_role') || 'guest'
   const [timecode, setTimecode] = useState('00:00:00')
 
   useEffect(() => {
@@ -55,6 +57,9 @@ export default function RoomPage() {
           Leave
         </button>
       </header>
+
+      {/* Video conference overlay (bottom-left) */}
+      <VideoConference participantName={name} role={role} roomId={roomId} />
 
       {/* Main content area */}
       <main style={styles.main}>

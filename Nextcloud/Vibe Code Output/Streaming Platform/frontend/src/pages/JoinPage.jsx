@@ -32,7 +32,6 @@ export default function JoinPage() {
 
       sessionStorage.setItem('dcc_name', name.trim() || 'Guest')
       sessionStorage.setItem('dcc_role', 'guest')
-      sessionStorage.removeItem('dcc_meeting_id') // fresh meeting for each session
       navigate(`/room/${data.roomId}`)
     } catch {
       setError('Could not reach server. Check your connection.')

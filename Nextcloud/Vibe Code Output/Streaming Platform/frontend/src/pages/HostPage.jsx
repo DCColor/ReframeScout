@@ -30,7 +30,6 @@ export default function HostPage() {
 
       sessionStorage.setItem('dcc_name', name.trim() || 'Host')
       sessionStorage.setItem('dcc_role', 'host')
-      sessionStorage.removeItem('dcc_meeting_id') // fresh meeting for new room
       navigate(`/room/${data.roomId}`)
     } catch {
       setError('Could not reach server. Check your connection.')

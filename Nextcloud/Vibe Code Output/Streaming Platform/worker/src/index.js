@@ -6,7 +6,8 @@ import { DurableObject } from "cloudflare:workers";
 export class ChatRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
-    this.sessions = new Map(); // sessionId -> { ws, name }
+    // No in-memory state — all socket metadata is stored via serializeAttachment()
+    // so it survives DO hibernation between messages.
   }
 
   async fetch(request) {
@@ -20,23 +21,34 @@ export class ChatRoom extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
 
-      this.ctx.acceptWebSocket(server);
-
       const sessionId = crypto.randomUUID();
       const name = url.searchParams.get("name") || "Guest";
-      this.sessions.set(server, { sessionId, name });
 
-      // Announce join
+      // acceptWebSocket registers the socket with the hibernation runtime.
+      // serializeAttachment persists metadata on the socket across hibernation.
+      this.ctx.acceptWebSocket(server);
+      server.serializeAttachment({ sessionId, name });
+
+      // Announce join to all already-connected sockets (exclude the new one)
       this.#broadcast({ type: "presence", event: "join", name, sessionId }, server);
 
-      // Send current member list to new joiner
-      const members = [...this.sessions.values()].map((s) => ({
-        sessionId: s.sessionId,
-        name: s.name,
-      }));
+      // Send the current member list (including the new joiner) to the new socket
+      const members = this.ctx.getWebSockets().map((ws) => {
+        const a = ws.deserializeAttachment();
+        return { sessionId: a.sessionId, name: a.name };
+      });
       server.send(JSON.stringify({ type: "members", members }));
 
       return new Response(null, { status: 101, webSocket: client });
+    }
+
+    if (url.pathname === "/state") {
+      const sockets = this.ctx.getWebSockets();
+      const members = sockets.map((ws) => {
+        const a = ws.deserializeAttachment();
+        return { name: a?.name ?? "(unknown)", sessionId: a?.sessionId ?? null };
+      });
+      return Response.json({ socketCount: sockets.length, members });
     }
 
     return new Response("Not found", { status: 404 });
@@ -47,34 +59,40 @@ export class ChatRoom extends DurableObject {
     try {
       data = JSON.parse(message);
     } catch {
+      console.error("[ChatRoom] Failed to parse message:", message);
       return;
     }
 
-    const session = this.sessions.get(ws);
-    if (!session) return;
+    // Retrieve metadata from the socket itself — survives hibernation
+    const attachment = ws.deserializeAttachment();
+    const name = attachment?.name;
+    console.error("[ChatRoom] webSocketMessage type=%s from=%s attachment=%s",
+      data.type, name ?? "(no attachment)", JSON.stringify(attachment));
+
+    if (!name) {
+      console.error("[ChatRoom] Dropping message — no attachment on socket");
+      return;
+    }
+
+    const allSockets = this.ctx.getWebSockets();
+    console.error("[ChatRoom] getWebSockets() count:", allSockets.length);
 
     if (data.type === "chat") {
-      this.#broadcast({
-        type: "chat",
-        name: session.name,
-        text: data.text,
-        ts: Date.now(),
-      });
+      const outgoing = { type: "chat", name, text: data.text, ts: Date.now() };
+      console.error("[ChatRoom] Broadcasting chat to %d sockets (excluding sender)", allSockets.length);
+      this.#broadcast(outgoing);
     } else if (data.type === "laser" || data.type === "laser_off") {
+      console.error("[ChatRoom] Broadcasting %s to %d sockets (excluding sender)", data.type, allSockets.length - 1);
       this.#broadcast(data, ws);
+    } else {
+      console.error("[ChatRoom] Unknown message type:", data.type);
     }
   }
 
   webSocketClose(ws) {
-    const session = this.sessions.get(ws);
-    if (session) {
-      this.#broadcast({
-        type: "presence",
-        event: "leave",
-        name: session.name,
-        sessionId: session.sessionId,
-      });
-      this.sessions.delete(ws);
+    const { sessionId, name } = ws.deserializeAttachment() ?? {};
+    if (name) {
+      this.#broadcast({ type: "presence", event: "leave", name, sessionId });
     }
   }
 
@@ -88,15 +106,19 @@ export class ChatRoom extends DurableObject {
 
   #broadcast(msg, exclude = null) {
     const text = JSON.stringify(msg);
-    for (const [ws] of this.sessions) {
-      if (ws !== exclude) {
-        try {
-          ws.send(text);
-        } catch {
-          // ignore closed sockets
-        }
+    let sent = 0, skipped = 0, errored = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === exclude) { skipped++; continue; }
+      try {
+        ws.send(text);
+        sent++;
+      } catch (e) {
+        errored++;
+        console.error("[ChatRoom] #broadcast send error:", e.message);
       }
     }
+    console.error("[ChatRoom] #broadcast type=%s sent=%d skipped=%d errored=%d",
+      msg.type, sent, skipped, errored);
   }
 }
 
@@ -105,9 +127,9 @@ export class ChatRoom extends DurableObject {
 // ---------------------------------------------------------------------------
 let latestTimecode = "00:00:00:00";
 
-// roomId → Dyte meetingId. Passing meetingId back to the client (who stores
-// it in sessionStorage) ensures all participants share the same Dyte meeting
-// even if requests hit different isolates on subsequent calls.
+// roomId → Dyte meetingId. Server-side cache so all participants in the same
+// room share one Dyte meeting. Lost on isolate eviction; a new meeting is
+// created automatically on the next token request for that roomId.
 const dyteMeetingIds = new Map();
 
 // ---------------------------------------------------------------------------
@@ -182,6 +204,15 @@ export default {
       return json({ ok: true, roomId, name: name || "Guest" });
     }
 
+    // Debug – GET /api/room/:roomId/debug
+    if (url.pathname.startsWith("/api/room/") && url.pathname.endsWith("/debug") && request.method === "GET") {
+      const parts = url.pathname.split("/");
+      const roomId = parts[3];
+      const doId = env.CHAT_ROOM.idFromName(roomId);
+      const stub = env.CHAT_ROOM.get(doId);
+      return stub.fetch(new Request("https://do/state", { method: "GET" }));
+    }
+
     // WebSocket upgrade – proxied into the ChatRoom Durable Object
     if (url.pathname.startsWith("/api/room/") && url.pathname.endsWith("/websocket")) {
       const parts = url.pathname.split("/");
@@ -239,7 +270,7 @@ export default {
         return json({ error: "Invalid JSON" }, 400);
       }
 
-      const { participantName, role, roomId, meetingId: clientMeetingId } = body;
+      const { participantName, role, roomId } = body;
       if (!participantName) return json({ error: "participantName required" }, 400);
       if (!roomId) return json({ error: "roomId required" }, 400);
       if (role !== "host" && role !== "guest") return json({ error: "role must be host or guest" }, 400);
@@ -247,10 +278,9 @@ export default {
       const authHeader = `Bearer ${env.REALTIMEKIT_API_KEY}`;
       const dyteBase = `https://api.cloudflare.com/client/v4/accounts/588f4c4929a697b2d9e0237b4b7a18e8/realtime/kit/${env.REALTIMEKIT_ORG_ID}`;
 
-      // Resolve Dyte meeting ID – prefer what the client already knows (avoids
-      // isolate cold-start creating duplicate meetings), then fall back to the
-      // in-memory cache, then create a new one.
-      let meetingId = clientMeetingId || dyteMeetingIds.get(roomId);
+      // Resolve Dyte meeting ID from the server-side cache keyed by roomId.
+      // The worker is the single source of truth — no client-supplied ID is accepted.
+      let meetingId = dyteMeetingIds.get(roomId);
 
       if (!meetingId) {
         const createRes = await fetch(`${dyteBase}/meetings`, {

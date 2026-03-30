@@ -140,18 +140,16 @@ export default function VideoConference({ participantName, role, roomId, collaps
     async function join() {
       setStatus('loading')
       try {
-        const cachedMeetingId = sessionStorage.getItem('dcc_meeting_id') || undefined
         const res = await fetch(`${WORKER_URL}/api/meeting/token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ participantName, role, roomId, meetingId: cachedMeetingId }),
+          body: JSON.stringify({ participantName, role, roomId }),
         })
         if (!res.ok) {
           const err = await res.json()
           throw new Error(err.error || 'Failed to get meeting token')
         }
-        const { token, meetingId } = await res.json()
-        sessionStorage.setItem('dcc_meeting_id', meetingId)
+        const { token } = await res.json()
 
         const client = await initMeeting({
           authToken: token,

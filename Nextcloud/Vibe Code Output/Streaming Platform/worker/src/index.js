@@ -127,10 +127,6 @@ export class ChatRoom extends DurableObject {
 // ---------------------------------------------------------------------------
 let latestTimecode = "00:00:00:00";
 
-// roomId → Dyte meetingId. Server-side cache so all participants in the same
-// room share one Dyte meeting. Lost on isolate eviction; a new meeting is
-// created automatically on the next token request for that roomId.
-const dyteMeetingIds = new Map();
 
 // ---------------------------------------------------------------------------
 // CORS helpers
@@ -278,9 +274,9 @@ export default {
       const authHeader = `Bearer ${env.REALTIMEKIT_API_KEY}`;
       const dyteBase = `https://api.cloudflare.com/client/v4/accounts/588f4c4929a697b2d9e0237b4b7a18e8/realtime/kit/${env.REALTIMEKIT_ORG_ID}`;
 
-      // Resolve Dyte meeting ID from the server-side cache keyed by roomId.
+      // Resolve Dyte meeting ID from KV (durable across isolate evictions).
       // The worker is the single source of truth — no client-supplied ID is accepted.
-      let meetingId = dyteMeetingIds.get(roomId);
+      let meetingId = await env.MEETING_IDS.get(roomId);
 
       if (!meetingId) {
         const createRes = await fetch(`${dyteBase}/meetings`, {
@@ -297,7 +293,7 @@ export default {
         }
         const createData = await createRes.json();
         meetingId = createData.data.id;
-        dyteMeetingIds.set(roomId, meetingId);
+        await env.MEETING_IDS.put(roomId, meetingId, { expirationTtl: 86400 });
       }
 
       const presetName = role === "host" ? "group_call_host" : "group_call_participant";

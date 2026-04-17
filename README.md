@@ -1,2 +1,2 @@
-# DCTLS
-Free DCTLS from DC COLOR
+# ReframeScout
+Free DCTL for social media crop visualization and preview
